@@ -102,46 +102,66 @@
           }
         );
 
-        if (isElectron || !$scope.paramsPromise) {
-          // init params
-          $scope.paramsPromise = Wallet.initParams().then(function () {
-            $scope.loggedIn = Web3Service.coinbase;
+        // init params
+        $scope.paramsPromise = Wallet.initParams().then(function () {
+          $scope.loggedIn = Web3Service.coinbase;
+          $scope.coinbase = Web3Service.coinbase;
+          $scope.nonce = Wallet.txParams.nonce;
+          $scope.balance = Wallet.balance;
+          $scope.paramsPromise = null;
+
+          if (!isElectron) {
+            $scope.accounts = Web3Service.accounts;
+          }
+          else {
+            // Retrieves accounts from localStorage
+            if (Config.getConfiguration('accounts')) {
+              $scope.accounts = Config.getConfiguration('accounts').map(function (account) {
+                return account.address;
+              });
+            }
+            else {
+              $scope.accounts = [];
+            }
+          }
+        }, function (error) {
+          if (txDefault.wallet == "ledger") {
+            $scope.loggedIn = true;
+            $scope.accounts = Web3Service.accounts;
             $scope.coinbase = Web3Service.coinbase;
             $scope.nonce = Wallet.txParams.nonce;
-            $scope.balance = Wallet.balance;
             $scope.paramsPromise = null;
+          }
+          else if (txDefault.wallet == "lightwallet") {
+            // Retrieves accounts from localStorage, cannot get them from the injected web3 as we
+            // are offline
+            if (Config.getConfiguration('accounts')) {
+              $scope.accounts = Config.getConfiguration('accounts').map(function (account) {
+                return account.address;
+              });
 
-            if (!isElectron) {
-              $scope.accounts = Web3Service.accounts;
-            }
-            else {
-              // Retrieves accounts from localStorage
-              if (Config.getConfiguration('accounts')) {
-                $scope.accounts = Config.getConfiguration('accounts').map(function (account) {
-                  return account.address;
-                });
+              if (Web3Service.coinbase) {
+                $scope.coinbase = Web3Service.coinbase;
               }
               else {
-                $scope.accounts = [];
+                $scope.coinbase = $scope.accounts[0];
               }
-            }
-          }, function (error) {
-            if (txDefault.wallet == "ledger") {
+
               $scope.loggedIn = true;
-              $scope.accounts = Web3Service.accounts;
-              $scope.coinbase = Web3Service.coinbase;
-              $scope.nonce = Wallet.txParams.nonce;
-              $scope.paramsPromise = null;
             }
             else {
-              var syncErrorShown = Config.getConfiguration('syncErrorShown');
-              if (!syncErrorShown) {
-                Utils.dangerAlert(error);
-                Config.setConfiguration('syncErrorShown', true);
-              }
+              // $scope.accounts = [];
+              $scope.loggedIn = false;
             }
-          });
-        }
+          }
+          else {
+            var syncErrorShown = Config.getConfiguration('syncErrorShown');
+            if (!syncErrorShown) {
+              Utils.dangerAlert(error);
+              Config.setConfiguration('syncErrorShown', true);
+            }
+          }
+        });
 
         return $scope.paramsPromise;
       };
@@ -159,10 +179,17 @@
 
       };
 
+      /**
+      * Update info independently we're online or offline
+      */
+      $scope.updateInfo();
+      $scope.interval = $interval($scope.updateInfo, 5000);
+
+      /**
+      * Initialize web3
+      */
       Web3Service.webInitialized.then(
         function () {
-          $scope.interval = $interval($scope.updateInfo, 5000);
-
           /**
           * Lookup connection status
           * Check connectivity first on page loading
@@ -193,6 +220,9 @@
               });
             }
           });
+        },
+        function (error, e) {
+          // do nothing
         }
       );
 

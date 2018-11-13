@@ -81,7 +81,7 @@
       * Configure gas limit and gas price
       * Used for ledger wallet, lightwallet and ethereum node providers
       **/
-      factory.configureGas = function (params, cb) {        
+      factory.configureGas = function (params, cb) {
         $uibModal
         .open(
           {
@@ -93,7 +93,7 @@
                 return params;
               }
             },
-            controller: function ($scope, $uibModalInstance, Web3Service, options) {
+            controller: function ($scope, $uibModalInstance, Web3Service, Wallet, options) {
               $scope.send = function () {
                 $uibModalInstance.close({gas: $scope.gasLimit, gasPrice: $scope.gasPrice * 1e9});
               };
@@ -102,16 +102,21 @@
                 $uibModalInstance.dismiss();
               }
 
-              $scope.close = $uibModalInstance.dismiss;                
-              $scope.gasLimit = options.gas;
-              $scope.minimumGasLimit = options.gas;
-              $scope.gasPrice = options.gasPrice / 1e9;
-
               $scope.calculateFee = function () {
                 $scope.txFee = $scope.gasLimit * ($scope.gasPrice * 1e9) / 1e18;
-              }                
+              }
 
-              $scope.calculateFee();
+              $scope.close = $uibModalInstance.dismiss;
+
+              Wallet.getGasPrice().then(function (gasPrice) {
+                $scope.gasLimit = options.gas;
+                $scope.minimumGasLimit = options.gas;
+                $scope.gasPrice = gasPrice / 1e9;
+                $scope.calculateFee();
+              }).catch(function (error) {
+                cb(error);
+              });
+
             }
           }
         )
@@ -120,8 +125,16 @@
       };
 
       factory.sendTransaction = function (method, params, options, cb) {
+        var gasConfigurationData;
 
-        factory.configureGas(params[params.length-1], function(gasOptions){
+        if (options && options.onlySimulate === true) {
+          gasConfigurationData = options;
+        } else {
+          gasConfigurationData = params[params.length-1];
+        }
+
+
+        factory.configureGas(gasConfigurationData, function(gasOptions){
           var refinedTxOptions = Object.assign({}, params[params.length-1], gasOptions);
           // Ugly but needed
           params[params.length-1] = refinedTxOptions
@@ -131,7 +144,7 @@
               cb(e);
             }
             else {
-              if (result) {                            
+              if (result) {
                 method.sendTransaction.apply(method.sendTransaction, params.concat(cb));
               }
               else {
@@ -139,7 +152,7 @@
               }
             }
           }
-        
+
           var args;
           if ( options && options.onlySimulate) {
             args = params.concat(cb);
@@ -148,8 +161,8 @@
           else {
             args = params.concat(sendIfSuccess);
             method.call.apply(method.call, args);
-          }   
-        });             
+          }
+        });
       };
 
       /**
@@ -342,7 +355,7 @@
           getAccounts: function (cb) {
             if(!factory.accounts.length) {
               TrezorConnect.ethereumGetAddress("m/44'/60'/0'/0/0", function(response) {
-                if(response.success){                  
+                if(response.success){
                   factory.accounts = ["0x" + response.address];
                   cb(null, factory.accounts)
                 }
@@ -390,7 +403,7 @@
                     cb(response.error)
                   }
                 })
-              });         
+              });
           }
         });
 
@@ -573,14 +586,26 @@
 
       factory.importLightWalletAccount = function (v3, password, ctrlCallback) {
         // DIRTY but MyEtherWallet doesn't generate an standard V3 file, it adds a word Crypto instead of crypto
-        v3.crypto = v3.Crypto;
-        delete v3.Crypto;
+        if (v3.Crypto && !v3.crypto) {
+          v3.crypto = v3.Crypto;
+          delete v3.Crypto;
+        }
         var v3String = JSON.stringify(v3);
+        // Verify passphrase is correct
+        try {
+          v3Instance = ethereumWallet.fromV3(v3String, password);
+        } catch (error) {
+          ctrlCallback(error);
+          return;
+        }
+
+
         // key => value object (address => V3)
         var keystoreObj = JSON.parse(factory.getKeystore()) || {};
 
         // Set keystore in V3 format
         factory.keystore = v3;
+
         // Encrypt V3
         encryptor.encrypt(password, v3String)
         .then(function (encryptedV3String) {
@@ -601,7 +626,7 @@
           // Do web3 setup
           factory.lightWalletSetup(false);
 
-          ctrlCallback(generatedAddress);
+          ctrlCallback(null, generatedAddress);
         });
       };
 
